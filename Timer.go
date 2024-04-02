@@ -162,6 +162,22 @@ func (t *Timer) AddJob(jobKey, jobName string, existReplace bool,
 	})
 }
 
+func (t *Timer) RemoveJob(jobKey string) {
+	t.jobLock.Lock()
+	defer t.jobLock.Unlock()
+
+	var jobObj *Job
+	for _, job := range t.jobs {
+		if job.key == jobKey {
+			jobObj = job
+			break
+		}
+	}
+	if jobObj != nil {
+		t.delJob(jobObj)
+	}
+}
+
 func (t *Timer) addJob(job *Job) {
 	t.jobs = append(t.jobs, job)
 	sort.Slice(t.jobs, func(i, j int) bool {
