@@ -50,7 +50,7 @@ func (c CronSpecService) every(curTime time.Time, timePeriod string) (*time.Time
 		return &nextTime, &dur, nil
 
 	} else if strings.HasSuffix(timePeriod, "m") {
-		timeValueStr := strings.TrimSuffix(timePeriod, "s")
+		timeValueStr := strings.TrimSuffix(timePeriod, "m")
 		timeValue, err := strconv.Atoi(timeValueStr)
 		if err != nil {
 			return nil, nil, fmt.Errorf("表达式[%s]格式不正确", timePeriod)
@@ -61,7 +61,7 @@ func (c CronSpecService) every(curTime time.Time, timePeriod string) (*time.Time
 		return &nextTime, &dur, nil
 
 	} else if strings.HasSuffix(timePeriod, "h") {
-		timeValueStr := strings.TrimSuffix(timePeriod, "s")
+		timeValueStr := strings.TrimSuffix(timePeriod, "h")
 		timeValue, err := strconv.Atoi(timeValueStr)
 		if err != nil {
 			return nil, nil, fmt.Errorf("表达式[%s]格式不正确", timePeriod)
