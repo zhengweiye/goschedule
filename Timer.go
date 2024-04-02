@@ -146,10 +146,12 @@ func (t *Timer) AddJob(jobKey, jobName string, existReplace bool,
 	// 情况一：先AddJob-->Start ===> 没有问题
 	// 情况二：先Start-->AddJob ===> 下一个周期会被执行
 	// 情况三：先AddJob-->Start-->AddJob ===> 下一个周期会被执行
-	nextTime, period, err := t.specService.NextTime(time.Now().Add(delay), cronExpress)
+	_, period, err := t.specService.NextTime(time.Now(), cronExpress)
+	nextTime := time.Now().Add(delay)
 	if err != nil {
 		panic(fmt.Errorf("%s的表达式错误", jobName))
 	}
+
 	//fmt.Println(">>>AddJob() ", ", joName=", jobName, ", cron=", cronExpress, ", 预计执行时间=", nextTime.Format("2006-01-02 15:04:05"))
 	t.addJob(&Job{
 		key:         jobKey,
@@ -157,7 +159,7 @@ func (t *Timer) AddJob(jobKey, jobName string, existReplace bool,
 		jobFunc:     jobFunc,
 		cronExpress: cronExpress,
 		period:      period,
-		nextTime:    *nextTime,
+		nextTime:    nextTime,
 		param:       param,
 	})
 }

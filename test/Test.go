@@ -9,16 +9,14 @@ import (
 func main() {
 	timer := goschedule.NewTimer()
 
-	timer.AddJob("test", "测试", true, time.Second, "@every 5s", jobFuc, map[string]any{
-		"name": "张三",
-	})
-	timer.AddJob("test", "测试", true, time.Second, "@every 5s", jobFuc, map[string]any{
+	fmt.Println("AddJob:", time.Now())
+	timer.AddJob("test", "测试", true, 10*time.Second, "@every 30s", jobFuc, map[string]any{
 		"name": "张三",
 	})
 	timer.SetLogFunc(logRecord)
 	timer.Start()
 
-	time.Sleep(10 * time.Second)
+	time.Sleep(100 * time.Second)
 }
 
 func logRecord(log goschedule.Log) {
@@ -26,7 +24,7 @@ func logRecord(log goschedule.Log) {
 }
 
 func jobFuc(param map[string]any) (err error, result string) {
-	fmt.Println("执行：", param)
+	fmt.Println("执行：", time.Now())
 	result = "执行成功"
 	return
 }
