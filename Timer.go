@@ -323,17 +323,21 @@ func (t *Timer) process() {
 }
 
 func (t *Timer) getLatestDuration() time.Duration {
-	d := t.defaultTime
-	if len(t.jobs) > 0 {
-		timeNow := time.Now()
-		firstJobNextTime := t.jobs[0].nextTime
-		if firstJobNextTime.Before(timeNow) || firstJobNextTime.Equal(timeNow) {
-			d = 500 * time.Millisecond // 已经错过的，则立马执行
-		} else if firstJobNextTime.After(time.Now()) {
-			d = t.jobs[0].nextTime.Sub(time.Now())
-		}
+	if len(t.jobs) == 0 {
+		return t.defaultTime
 	}
-	return d
+
+	sort.Slice(t.jobs, func(i, j int) bool {
+		return t.jobs[i].nextTime.Before(t.jobs[j].nextTime)
+	})
+
+	timeNow := time.Now()
+	firstJobNextTime := t.jobs[0].nextTime
+	if firstJobNextTime.Before(timeNow) || firstJobNextTime.Equal(timeNow) {
+		return 500 * time.Millisecond // 已经错过的，则立马执行
+	} else {
+		return firstJobNextTime.Sub(timeNow)
+	}
 }
 
 func (t *Timer) execJob(job *Job) (err error, result string) {
