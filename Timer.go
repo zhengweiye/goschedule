@@ -277,15 +277,15 @@ func (t *Timer) process() {
 	// 执行job
 	//TODO #issue, 集成线程池
 	logJobs := make([]*LogJob, len(execJobs))
-	for index, job := range execJobs {
+	for execIndex, execJob := range execJobs {
 		t.wg.Add(1)
-		go func(i int) {
+		go func(index int, job *Job) {
 			err, resultMsg := t.execJob(job)
 			var errMsg string
 			if err != nil {
 				errMsg = err.Error()
 			}
-			logJobs[i] = &LogJob{
+			logJobs[index] = &LogJob{
 				key:        job.key,
 				name:       job.name,
 				ExecTime:   timeNowStr,
@@ -293,7 +293,7 @@ func (t *Timer) process() {
 				ExecResult: resultMsg,
 				NextTime:   formatTime(job.nextTime),
 			}
-		}(index)
+		}(execIndex, execJob)
 	}
 
 	// 等job执行完成, 并且更新job的下次执行时间
@@ -309,13 +309,13 @@ func (t *Timer) process() {
 		cronLog.ExecTime = timeNow
 		cronLog.Jobs = logJobs
 
-		go func(cronLog Log) {
+		go func(cronLog2 Log) {
 			defer func() {
 				if err := recover(); err != nil {
 					fmt.Println(">>> insert into cron_log err:", err)
 				}
 			}()
-			t.logFunc(cronLog)
+			t.logFunc(cronLog2)
 		}(cronLog)
 	}
 }
