@@ -300,9 +300,6 @@ func (t *Timer) process() {
 	//TODO #issue, 感觉没必要等所有执行的job完成才进行下一轮，这样会导致其它定时器的时间准确性
 	t.wg.Wait()
 
-	// 重置定时器
-	t.scheduler.Reset(t.getLatestDuration())
-
 	// 保存日志
 	if t.logFunc != nil {
 		var cronLog Log
@@ -318,6 +315,11 @@ func (t *Timer) process() {
 			t.logFunc(cronLog2)
 		}(cronLog)
 	}
+
+	// 重置定时器
+	duration := t.getLatestDuration()
+	fmt.Println(">>>重置定时器时间:", duration.Seconds(), "秒")
+	t.scheduler.Reset(duration)
 }
 
 func (t *Timer) getLatestDuration() time.Duration {

@@ -8,23 +8,22 @@ import (
 
 func main() {
 	timer := goschedule.NewTimer()
-
-	fmt.Println("AddJob:", time.Now())
-	timer.AddJob("test", "测试", true, 10*time.Second, "@every 30s", jobFuc, map[string]any{
-		"name": "张三",
-	})
-	timer.SetLogFunc(logRecord)
 	timer.Start()
 
-	time.Sleep(100 * time.Second)
-}
+	timer.AddJob("test1", "测试1", true, 10*time.Second, "@every 30s", jobFuc, map[string]any{
+		"name": "张三",
+	})
 
-func logRecord(log goschedule.Log) {
-	fmt.Println("日志：", log)
+	timer.AddJob("test2", "测试2", true, 20*time.Second, "@every 40s", jobFuc, map[string]any{
+		"name": "李四",
+	})
+
+	for {
+
+	}
 }
 
 func jobFuc(param map[string]any) (err error, result string) {
-	fmt.Println("执行：", time.Now())
-	result = "执行成功"
+	fmt.Println("执行：", param["name"], time.Now())
 	return
 }
