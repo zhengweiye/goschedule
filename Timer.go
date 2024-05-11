@@ -329,7 +329,6 @@ func (t *Timer) process() {
 					nextTime = execResult.NextTime
 				}
 			}
-			fmt.Println("resultMsg=", resultMsg, ", nextTime=", formatTime(nextTime))
 			logJobs[execIndex] = &LogJob{
 				key:        execJob.key,
 				name:       execJob.name,
