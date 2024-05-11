@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"github.com/zhengweiye/gopool"
 	"net/http"
 	"os"
 	"os/signal"
@@ -29,6 +30,7 @@ type Timer struct {
 	httpServer  *http.Server
 	signalFile  string
 	logFunc     LogFunc
+	pool        *gopool.Pool
 }
 
 type Job struct {
@@ -94,6 +96,13 @@ func init() {
 
 func (t *Timer) SetLogFunc(fun LogFunc) {
 	t.logFunc = fun
+}
+
+/**
+ * 设置线程池
+ */
+func (t *Timer) SetPool(pool *gopool.Pool) {
+	t.pool = pool
 }
 
 /**
@@ -275,25 +284,61 @@ func (t *Timer) process() {
 	}
 
 	// 执行job
-	//TODO #issue, 集成线程池
 	logJobs := make([]*LogJob, len(execJobs))
 	for execIndex, execJob := range execJobs {
 		t.wg.Add(1)
-		go func(index int, job *Job) {
-			err, resultMsg := t.execJob(job)
+		if t.pool == nil {
+			go func(index int, job *Job) {
+				err, resultMsg := t.execJob(job)
+				var errMsg string
+				if err != nil {
+					errMsg = err.Error()
+				}
+				logJobs[index] = &LogJob{
+					key:        job.key,
+					name:       job.name,
+					ExecTime:   timeNowStr,
+					ExecErr:    errMsg,
+					ExecResult: resultMsg,
+					NextTime:   formatTime(job.nextTime),
+				}
+			}(execIndex, execJob)
+		} else {
+			futureChan := make(chan gopool.Future)
+			t.pool.ExecTaskFuture(gopool.JobFuture{
+				JobName: "执行定时任务",
+				JobFunc: t.poolExecJob,
+				JobParam: map[string]any{
+					"job": execJob,
+				},
+				Future: futureChan,
+			})
+			future := <-futureChan
+
 			var errMsg string
-			if err != nil {
-				errMsg = err.Error()
+			var resultMsg string
+			var nextTime time.Time
+
+			if future.Error != nil {
+				errMsg = future.Error.Error()
 			}
-			logJobs[index] = &LogJob{
-				key:        job.key,
-				name:       job.name,
+			if future.Result != nil {
+				execResult, ok := future.Result.(ExecResult)
+				if ok {
+					resultMsg = execResult.Result
+					nextTime = execResult.NextTime
+				}
+			}
+			fmt.Println("resultMsg=", resultMsg, ", nextTime=", formatTime(nextTime))
+			logJobs[execIndex] = &LogJob{
+				key:        execJob.key,
+				name:       execJob.name,
 				ExecTime:   timeNowStr,
 				ExecErr:    errMsg,
 				ExecResult: resultMsg,
-				NextTime:   formatTime(job.nextTime),
+				NextTime:   formatTime(nextTime),
 			}
-		}(execIndex, execJob)
+		}
 	}
 
 	// 等job执行完成, 并且更新job的下次执行时间
@@ -306,14 +351,24 @@ func (t *Timer) process() {
 		cronLog.ExecTime = timeNow
 		cronLog.Jobs = logJobs
 
-		go func(cronLog2 Log) {
-			defer func() {
-				if err := recover(); err != nil {
-					fmt.Println(">>> insert into cron_log err:", err)
-				}
-			}()
-			t.logFunc(cronLog2)
-		}(cronLog)
+		if t.pool == nil {
+			go func(logObj Log) {
+				defer func() {
+					if err := recover(); err != nil {
+						fmt.Println(">>> goroutine insert into cron_log err:", err)
+					}
+				}()
+				t.logFunc(logObj)
+			}(cronLog)
+		} else {
+			t.pool.ExecTask(gopool.Job{
+				JobName: "定时器执行日志保存",
+				JobFunc: t.poolLogJob,
+				JobParam: map[string]any{
+					"log": cronLog,
+				},
+			})
+		}
 	}
 
 	// 重置定时器
@@ -337,6 +392,50 @@ func (t *Timer) getLatestDuration() time.Duration {
 		return 500 * time.Millisecond // 已经错过的，则立马执行
 	} else {
 		return firstJobNextTime.Sub(timeNow)
+	}
+}
+
+func (t *Timer) poolLogJob(workerId int, param map[string]any) error {
+	defer func() {
+		if err := recover(); err != nil {
+			fmt.Println(">>> goroutine pool insert into cron_log err:", err)
+		}
+	}()
+	t.logFunc(param["log"].(Log))
+	return nil
+}
+
+type ExecResult struct {
+	Result   string
+	NextTime time.Time
+}
+
+func (t *Timer) poolExecJob(workerId int, param map[string]any, future chan gopool.Future) {
+	var result string
+	var job *Job
+	defer func() {
+		if err := recover(); err != nil {
+			future <- gopool.Future{
+				Error: fmt.Errorf("%v", err),
+				Result: ExecResult{
+					Result:   result,
+					NextTime: job.nextTime,
+				},
+			}
+		} else {
+			future <- gopool.Future{
+				Error: nil,
+				Result: ExecResult{
+					Result:   result,
+					NextTime: job.nextTime,
+				},
+			}
+		}
+	}()
+	job = param["job"].(*Job)
+	err, result := t.execJob(job)
+	if err != nil {
+		panic(err)
 	}
 }
 
