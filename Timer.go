@@ -1,24 +1,16 @@
 package goschedule
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"github.com/zhengweiye/gopool"
-	"net/http"
-	"os"
-	"os/signal"
-	"path/filepath"
 	"sort"
 	"sync"
-	"syscall"
 	"time"
 )
 
-type JobFunc func(param map[string]any) (error, string)
+type JobFunc func(param map[string]any) (err error, result string)
 type LogFunc func(log Log)
-
-var signalChan = make(chan os.Signal, 1)
 
 type Timer struct {
 	jobs        []*Job
@@ -26,11 +18,12 @@ type Timer struct {
 	specService SpecService
 	jobLock     sync.RWMutex
 	defaultTime time.Duration
-	wg          *sync.WaitGroup
-	httpServer  *http.Server
-	signalFile  string
 	logFunc     LogFunc
 	pool        *gopool.Pool
+	wg          *sync.WaitGroup
+	ctx         context.Context
+	quit        chan bool
+	isShutdown  bool
 }
 
 type Job struct {
@@ -57,37 +50,24 @@ type LogJob struct {
 	NextTime   string
 }
 
-var schedule *Timer
-var scheduleNewOnce sync.Once
-var scheduleStartOnce sync.Once
+var timerObj *Timer
+var timerOnce sync.Once
+var timerStartOnce sync.Once
 
-func NewTimer() *Timer {
-	scheduleNewOnce.Do(func() {
-		schedule = &Timer{
+func NewTimer(pool *gopool.Pool, ctx context.Context) *Timer {
+	timerOnce.Do(func() {
+		timerObj = &Timer{
 			defaultTime: 10 * time.Second,
 			wg:          &sync.WaitGroup{},
 			specService: newSpecService(),
+			ctx:         ctx,
+			pool:        pool,
+			quit:        make(chan bool),
+			isShutdown:  false,
 		}
+		fmt.Printf(">>>>>>[定时器] 线程池指针：%p\n", pool)
 	})
-	return schedule
-}
-
-func init() {
-	signal.Notify(signalChan,
-		syscall.SIGHUP,
-		syscall.SIGINT,
-		syscall.SIGQUIT,
-		syscall.SIGILL,
-		syscall.SIGTRAP,
-		syscall.SIGABRT,
-		syscall.SIGBUS,
-		syscall.SIGFPE,
-		syscall.SIGKILL,
-		syscall.SIGSEGV,
-		syscall.SIGPIPE,
-		syscall.SIGALRM,
-		syscall.SIGTERM, //terminated ==> docker重启项目会触发该信号
-	)
+	return timerObj
 }
 
 /**
@@ -96,29 +76,6 @@ func init() {
 
 func (t *Timer) SetLogFunc(fun LogFunc) {
 	t.logFunc = fun
-}
-
-/**
- * 设置线程池
- */
-func (t *Timer) SetPool(pool *gopool.Pool) {
-	t.pool = pool
-}
-
-/**
- * 监听到信号量时，打印日志路径
- */
-
-func (t *Timer) SetSignalFile(file string) {
-	t.signalFile = file
-}
-
-/**
- * 设置http服务，用于优雅听证
- */
-
-func (t *Timer) SetHttpServer(server *http.Server) {
-	t.httpServer = server
 }
 
 /**
@@ -138,6 +95,7 @@ func (t *Timer) AddJob(jobKey, jobName string, existReplace bool,
 
 	t.jobLock.Lock()
 	defer t.jobLock.Unlock()
+
 	if !existReplace {
 		for _, job := range t.jobs {
 			if job.key == jobKey {
@@ -213,7 +171,7 @@ func (t *Timer) delJob(job *Job) {
  */
 
 func (t *Timer) Start() {
-	scheduleStartOnce.Do(func() {
+	timerStartOnce.Do(func() {
 		// 创建定时器
 		t.scheduler = time.NewTimer(t.getLatestDuration())
 
@@ -227,46 +185,31 @@ func (t *Timer) listen() {
 		select {
 		case <-t.scheduler.C:
 			t.process()
-		case signalCmd := <-signalChan:
-			switch signalCmd {
-			case os.Interrupt:
-				t.stop(signalCmd)
-			case os.Kill:
-				t.stop(signalCmd)
-			case syscall.SIGTERM:
-				t.stop(signalCmd)
+
+		case <-t.quit:
+			fmt.Println("[定时器] 退出定时器监听......................")
+			return
+
+		case <-t.ctx.Done():
+			fmt.Println("[定时器] 接受到Context取消信号...............")
+			if !t.isShutdown {
+				t.stop()
 			}
 		}
 	}
 }
 
-func (t *Timer) stop(signalCmd os.Signal) {
+func (t *Timer) stop() {
 	// 停止定时器
+	t.isShutdown = true
 	t.scheduler.Stop()
-	// 停止监听信号量
-	signal.Stop(signalChan)
 
-	// 记录到文档里面
-	if len(t.signalFile) > 0 {
-		fileName := t.signalFile
-		os.MkdirAll(filepath.Dir(fileName), 0750)
-		file, _ := os.OpenFile(fileName, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0666)
-		defer file.Close()
-		writer := bufio.NewWriter(file)
-		writer.WriteString(fmt.Sprintf("时间=%s,指令=%s\r\n", formatTime(time.Now()), signalCmd.String()))
-		writer.Flush()
-	}
+	fmt.Println("[定时器] 关闭定时器, 等待结束..........")
 
-	// 关闭http
-	if t.httpServer != nil {
-		// 等所有任务执行完成，才停止服务
-		t.wg.Wait()
+	t.wg.Wait()
+	close(t.quit)
 
-		// 关闭http服务
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		t.httpServer.Shutdown(ctx)
-	}
+	fmt.Println("[定时器] 关闭定时器, 已经结束..........")
 }
 
 func (t *Timer) process() {
@@ -276,6 +219,7 @@ func (t *Timer) process() {
 	// 获取需要执行的job
 	t.jobLock.RLock()
 	defer t.jobLock.RUnlock()
+
 	execJobs := []*Job{}
 	for _, job := range t.jobs {
 		if job.nextTime.Before(timeNow) || job.nextTime.Equal(timeNow) {
@@ -287,56 +231,45 @@ func (t *Timer) process() {
 	logJobs := make([]*LogJob, len(execJobs))
 	for execIndex, execJob := range execJobs {
 		t.wg.Add(1)
-		if t.pool == nil {
-			go func(index int, job *Job) {
-				err, resultMsg := t.execJob(job)
-				var errMsg string
-				if err != nil {
-					errMsg = err.Error()
-				}
-				logJobs[index] = &LogJob{
-					key:        job.key,
-					name:       job.name,
-					ExecTime:   timeNowStr,
-					ExecErr:    errMsg,
-					ExecResult: resultMsg,
-					NextTime:   formatTime(job.nextTime),
-				}
-			}(execIndex, execJob)
-		} else {
-			futureChan := make(chan gopool.Future)
-			t.pool.ExecTaskFuture(gopool.JobFuture{
-				JobName: "执行定时任务",
-				JobFunc: t.poolExecJob,
-				JobParam: map[string]any{
-					"job": execJob,
-				},
-				Future: futureChan,
-			})
-			future := <-futureChan
 
-			var errMsg string
-			var resultMsg string
-			var nextTime time.Time
+		// 协程池执行任务
+		futureChan := make(chan gopool.Future)
+		//close(futureChan)// 不需要关闭，协程池里面已经关闭了
 
-			if future.Error != nil {
-				errMsg = future.Error.Error()
+		t.pool.ExecTaskFuture(gopool.JobFuture{
+			JobName: "执行定时任务",
+			JobFunc: t.execJob,
+			JobParam: map[string]any{
+				"job": execJob,
+			},
+			Future: futureChan,
+		})
+
+		// 获取协程池执行结果
+		future := <-futureChan
+
+		// 执行结果处理
+		var errMsg string
+		var resultMsg string
+		var nextTime time.Time
+
+		if future.Error != nil {
+			errMsg = future.Error.Error()
+		}
+		if future.Result != nil {
+			execResult, ok := future.Result.(ExecResult)
+			if ok {
+				resultMsg = execResult.Result
+				nextTime = execResult.NextTime
 			}
-			if future.Result != nil {
-				execResult, ok := future.Result.(ExecResult)
-				if ok {
-					resultMsg = execResult.Result
-					nextTime = execResult.NextTime
-				}
-			}
-			logJobs[execIndex] = &LogJob{
-				key:        execJob.key,
-				name:       execJob.name,
-				ExecTime:   timeNowStr,
-				ExecErr:    errMsg,
-				ExecResult: resultMsg,
-				NextTime:   formatTime(nextTime),
-			}
+		}
+		logJobs[execIndex] = &LogJob{
+			key:        execJob.key,
+			name:       execJob.name,
+			ExecTime:   timeNowStr,
+			ExecErr:    errMsg,
+			ExecResult: resultMsg,
+			NextTime:   formatTime(nextTime),
 		}
 	}
 
@@ -350,30 +283,21 @@ func (t *Timer) process() {
 		cronLog.ExecTime = timeNow
 		cronLog.Jobs = logJobs
 
-		if t.pool == nil {
-			go func(logObj Log) {
-				defer func() {
-					if err := recover(); err != nil {
-						fmt.Println(">>> goroutine insert into cron_log err:", err)
-					}
-				}()
-				t.logFunc(logObj)
-			}(cronLog)
-		} else {
-			t.pool.ExecTask(gopool.Job{
-				JobName: "定时器执行日志保存",
-				JobFunc: t.poolLogJob,
-				JobParam: map[string]any{
-					"log": cronLog,
-				},
-			})
-		}
+		t.pool.ExecTask(gopool.Job{
+			JobName: "定时器执行日志保存",
+			JobFunc: t.logJob,
+			JobParam: map[string]any{
+				"log": cronLog,
+			},
+		})
 	}
 
 	// 重置定时器
-	duration := t.getLatestDuration()
-	fmt.Println(">>>重置定时器时间:", duration.Seconds(), "秒")
-	t.scheduler.Reset(duration)
+	if !t.isShutdown {
+		duration := t.getLatestDuration()
+		fmt.Println(">>> [定时器] 重置定时器时间：", duration.Seconds(), "秒")
+		t.scheduler.Reset(duration)
+	}
 }
 
 func (t *Timer) getLatestDuration() time.Duration {
@@ -394,10 +318,10 @@ func (t *Timer) getLatestDuration() time.Duration {
 	}
 }
 
-func (t *Timer) poolLogJob(workerId int, param map[string]any) error {
+func (t *Timer) logJob(workerId int, jobName string, param map[string]any) error {
 	defer func() {
 		if err := recover(); err != nil {
-			fmt.Println(">>> goroutine pool insert into cron_log err:", err)
+			fmt.Println(">>> [定时器] 执行日志报错异常：", err)
 		}
 	}()
 	t.logFunc(param["log"].(Log))
@@ -409,55 +333,45 @@ type ExecResult struct {
 	NextTime time.Time
 }
 
-func (t *Timer) poolExecJob(workerId int, param map[string]any, future chan gopool.Future) {
-	var result string
-	var job *Job
+func (t *Timer) execJob(workerId int, jobName string, param map[string]any, future chan gopool.Future) {
+	//TODO 感觉放这里不合适，因为process()循环里面，下面还有代码执行
+	defer t.wg.Done()
+
+	// 参数
+	job := param["job"].(*Job)
+	var execError error
+	var execResult string
+
+	// 更新job下一轮时间
+	// 异常处理
 	defer func() {
 		if err := recover(); err != nil {
-			future <- gopool.Future{
-				Error: fmt.Errorf("%v", err),
-				Result: ExecResult{
-					Result:   result,
-					NextTime: job.nextTime,
-				},
-			}
-		} else {
-			future <- gopool.Future{
-				Error: nil,
-				Result: ExecResult{
-					Result:   result,
-					NextTime: job.nextTime,
-				},
-			}
+			fmt.Printf(">>> [定时器] [%s] 执行任务异常：%v\n", job.name, err)
 		}
-	}()
-	job = param["job"].(*Job)
-	err, result := t.execJob(job)
-	if err != nil {
-		panic(err)
-	}
-}
 
-func (t *Timer) execJob(job *Job) (err error, result string) {
-	defer func() {
-		defer t.wg.Done()
-		if err2 := recover(); err2 != nil {
-			err = fmt.Errorf("%v", err2)
-			fmt.Printf(">>> %s执行异常:%v\n", job.name, err)
-		}
-		// 计算下次时间
 		if job.period != nil {
 			job.nextTime = time.Now().Add(*job.period)
 		} else {
-			nextTime, _, err2 := t.specService.NextTime(time.Now(), job.cronExpress)
-			if err2 != nil {
-				fmt.Println(job.name, ">>获取NextTime错误=", err2)
+			nextTime, _, err := t.specService.NextTime(time.Now(), job.cronExpress)
+			if err != nil {
+				fmt.Printf(">>> [定时器] [%s] 更新job.NextTime异常：%v\n", job.name, err)
 				return
 			}
 			job.nextTime = *nextTime
 		}
+
+		future <- gopool.Future{
+			Error: execError,
+			Result: ExecResult{
+				Result:   execResult,
+				NextTime: job.nextTime,
+			},
+		}
 	}()
 
-	err, result = job.jobFunc(job.param)
-	return
+	// 执行任务
+	execError, execResult = job.jobFunc(job.param)
+	if execError != nil {
+		panic(execError)
+	}
 }
