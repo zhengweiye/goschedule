@@ -6,13 +6,16 @@ import (
 	"github.com/zhengweiye/gopool"
 	"github.com/zhengweiye/goschedule"
 	"math/rand"
+	"sync"
 	"time"
 )
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
-	pool := gopool.NewPool(100, 100, ctx)
-	timer := goschedule.NewTimer(pool, ctx)
+	waitGroup := &sync.WaitGroup{}
+
+	pool := gopool.NewPool(100, 100, ctx, waitGroup)
+	timer := goschedule.NewTimer(pool, ctx, waitGroup)
 	timer.Start()
 
 	timer.AddJob("test1", "测试1", true, 10*time.Second, "@every 10s", jobFuc, map[string]any{
@@ -26,9 +29,8 @@ func main() {
 	time.Sleep(16 * time.Second)
 	cancel()
 
-	for {
-
-	}
+	waitGroup.Wait()
+	fmt.Println("结束.....")
 }
 
 func jobFuc(param map[string]any) (err error, result string) {

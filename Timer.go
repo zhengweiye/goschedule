@@ -13,17 +13,18 @@ type JobFunc func(param map[string]any) (err error, result string)
 type LogFunc func(log Log)
 
 type Timer struct {
-	jobs        []*Job
-	scheduler   *time.Timer
-	specService SpecService
-	jobLock     sync.RWMutex
-	defaultTime time.Duration
-	logFunc     LogFunc
-	pool        *gopool.Pool
-	wg          *sync.WaitGroup
-	ctx         context.Context
-	quit        chan bool
-	isShutdown  bool
+	jobs            []*Job
+	scheduler       *time.Timer
+	specService     SpecService
+	jobLock         sync.RWMutex
+	defaultTime     time.Duration
+	logFunc         LogFunc
+	pool            *gopool.Pool
+	innerWaitGroup  *sync.WaitGroup
+	globalWaitGroup *sync.WaitGroup
+	ctx             context.Context
+	quit            chan bool
+	isShutdown      bool
 }
 
 type Job struct {
@@ -54,16 +55,18 @@ var timerObj *Timer
 var timerOnce sync.Once
 var timerStartOnce sync.Once
 
-func NewTimer(pool *gopool.Pool, ctx context.Context) *Timer {
+func NewTimer(pool *gopool.Pool, ctx context.Context, waitGroup *sync.WaitGroup) *Timer {
 	timerOnce.Do(func() {
+		waitGroup.Add(1)
 		timerObj = &Timer{
-			defaultTime: 10 * time.Second,
-			wg:          &sync.WaitGroup{},
-			specService: newSpecService(),
-			ctx:         ctx,
-			pool:        pool,
-			quit:        make(chan bool),
-			isShutdown:  false,
+			defaultTime:     10 * time.Second,
+			specService:     newSpecService(),
+			ctx:             ctx,
+			innerWaitGroup:  &sync.WaitGroup{},
+			globalWaitGroup: waitGroup,
+			pool:            pool,
+			quit:            make(chan bool),
+			isShutdown:      false,
 		}
 		fmt.Printf(">>>>>>[定时器] 线程池指针：%p\n", pool)
 	})
@@ -206,8 +209,10 @@ func (t *Timer) stop() {
 
 	fmt.Println("[定时器] 关闭定时器, 等待结束..........")
 
-	t.wg.Wait()
+	t.innerWaitGroup.Wait()
 	close(t.quit)
+
+	t.globalWaitGroup.Done()
 
 	fmt.Println("[定时器] 关闭定时器, 已经结束..........")
 }
@@ -230,7 +235,7 @@ func (t *Timer) process() {
 	// 执行job
 	logJobs := make([]*LogJob, len(execJobs))
 	for execIndex, execJob := range execJobs {
-		t.wg.Add(1)
+		t.innerWaitGroup.Add(1)
 
 		// 协程池执行任务
 		futureChan := make(chan gopool.Future)
@@ -275,7 +280,7 @@ func (t *Timer) process() {
 
 	// 等job执行完成, 并且更新job的下次执行时间
 	//TODO #issue, 感觉没必要等所有执行的job完成才进行下一轮，这样会导致其它定时器的时间准确性
-	t.wg.Wait()
+	t.innerWaitGroup.Wait()
 
 	// 保存日志
 	if t.logFunc != nil {
@@ -335,7 +340,7 @@ type ExecResult struct {
 
 func (t *Timer) execJob(workerId int, jobName string, param map[string]any, future chan gopool.Future) {
 	//TODO 感觉放这里不合适，因为process()循环里面，下面还有代码执行
-	defer t.wg.Done()
+	defer t.innerWaitGroup.Done()
 
 	// 参数
 	job := param["job"].(*Job)
