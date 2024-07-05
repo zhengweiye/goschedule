@@ -11,23 +11,23 @@ import (
 )
 
 func main() {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, _ := context.WithCancel(context.Background())
 	waitGroup := &sync.WaitGroup{}
 
 	pool := gopool.NewPool(100, 100, ctx, waitGroup)
 	timer := goschedule.NewTimer(pool, ctx, waitGroup)
 	timer.Start()
 
-	timer.AddJob("test1", "测试1", true, 10*time.Second, "@every 10s", jobFuc, map[string]any{
+	timer.AddJob("test1", "测试1", true, true, 10*time.Second, "@day 21:30:05", jobFuc, map[string]any{
 		"name": "张三",
 	})
 
-	timer.AddJob("test2", "测试2", true, 15*time.Second, "@every 15s", jobFuc, map[string]any{
+	/*timer.AddJob("test2", "测试2", true, true, 15*time.Second, "@every 15s", jobFuc, map[string]any{
 		"name": "李四",
-	})
+	})*/
 
-	time.Sleep(16 * time.Second)
-	cancel()
+	//time.Sleep(16 * time.Second)
+	//cancel()
 
 	waitGroup.Wait()
 	fmt.Println("结束.....")

@@ -31,10 +31,10 @@ type Job struct {
 	key         string
 	name        string
 	jobFunc     JobFunc
-	cronExpress string         // cron表达式
-	period      *time.Duration // 时间间隔
+	cronExpress string // cron表达式
 	nextTime    time.Time
 	param       map[string]any
+	missExec    bool // 错过执行时间是否补偿
 }
 
 type Log struct {
@@ -57,7 +57,7 @@ var timerStartOnce sync.Once
 
 func NewTimer(pool *gopool.Pool, ctx context.Context, waitGroup *sync.WaitGroup) *Timer {
 	timerOnce.Do(func() {
-		waitGroup.Add(1)
+		waitGroup.Add(1) //TODO 必须加1，在Shutdown时Done()
 		timerObj = &Timer{
 			defaultTime:     10 * time.Second,
 			specService:     newSpecService(),
@@ -86,15 +86,21 @@ func (t *Timer) SetLogFunc(fun LogFunc) {
  * jobKey: 作业标识
  * jobName: 作业名称
  * existReplace: jobKey存在时,是否替换旧的job
+ * missExec: 如果错过上次执行，是否补偿执行，针对@day和@year
  * delay: 延迟执行时间
  * cronExpress: 执行周期
  * jobFunc: 执行的业务函数
  * param: 执行时的参数
  */
 
-func (t *Timer) AddJob(jobKey, jobName string, existReplace bool,
-	delay time.Duration, cronExpress string,
-	jobFunc JobFunc, param map[string]any) {
+func (t *Timer) AddJob(jobKey,
+	jobName string,
+	existReplace,
+	missExec bool,
+	delay time.Duration,
+	cronExpress string,
+	jobFunc JobFunc,
+	param map[string]any) {
 
 	t.jobLock.Lock()
 	defer t.jobLock.Unlock()
@@ -116,10 +122,9 @@ func (t *Timer) AddJob(jobKey, jobName string, existReplace bool,
 	// 情况一：先AddJob-->Start ===> 没有问题
 	// 情况二：先Start-->AddJob ===> 下一个周期会被执行
 	// 情况三：先AddJob-->Start-->AddJob ===> 下一个周期会被执行
-	_, period, err := t.specService.NextTime(time.Now(), cronExpress)
-	nextTime := time.Now().Add(delay)
+	nextTime, err := t.specService.NextTime(true, delay, time.Now(), cronExpress, missExec)
 	if err != nil {
-		panic(fmt.Errorf("%s的表达式错误", jobName))
+		panic(fmt.Errorf("[%s]的表达式格式不正确", jobName))
 	}
 
 	//fmt.Println(">>>AddJob() ", ", joName=", jobName, ", cron=", cronExpress, ", 预计执行时间=", nextTime.Format("2006-01-02 15:04:05"))
@@ -128,9 +133,9 @@ func (t *Timer) AddJob(jobKey, jobName string, existReplace bool,
 		name:        jobName,
 		jobFunc:     jobFunc,
 		cronExpress: cronExpress,
-		period:      period,
 		nextTime:    nextTime,
 		param:       param,
+		missExec:    missExec,
 	})
 }
 
@@ -354,16 +359,13 @@ func (t *Timer) execJob(workerId int, jobName string, param map[string]any, futu
 			fmt.Printf(">>> [定时器] [%s] 执行任务异常：%v\n", job.name, err)
 		}
 
-		if job.period != nil {
-			job.nextTime = time.Now().Add(*job.period)
-		} else {
-			nextTime, _, err := t.specService.NextTime(time.Now(), job.cronExpress)
-			if err != nil {
-				fmt.Printf(">>> [定时器] [%s] 更新job.NextTime异常：%v\n", job.name, err)
-				return
-			}
-			job.nextTime = *nextTime
+		//TODO #issue: 如果是@day和@year, 那么本次执行完之后, 是从第二天开始算
+		nextTime, err := t.specService.NextTime(false, 0, time.Now(), job.cronExpress, job.missExec)
+		if err != nil {
+			fmt.Printf(">>> [定时器] [%s] 更新job.NextTime异常：%v\n", job.name, err)
+			return
 		}
+		job.nextTime = nextTime
 
 		future <- gopool.Future{
 			Error: execError,
