@@ -18,7 +18,7 @@ func main() {
 	timer := goschedule.NewTimer(pool, ctx, waitGroup)
 	timer.Start()
 
-	timer.AddJob("test1", "测试1", true, true, 10*time.Second, "@day 21:30:05", jobFuc, map[string]any{
+	timer.AddJob("test1", "测试1", true, false, 10*time.Second, "@week monday 09:00:00", jobFuc, map[string]any{
 		"name": "张三",
 	})
 

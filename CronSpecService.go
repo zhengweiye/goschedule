@@ -107,7 +107,7 @@ func (c CronSpecService) week(isFirst bool, curTime time.Time, timeStr string, m
 	}
 
 	// 获取下周的执行时间
-	nextTime, err = getNewDayTime(curTime, 1, timeStr)
+	nextTime, err = getNewWeekTime(curTime, 1, timeStr)
 	return
 }
 
