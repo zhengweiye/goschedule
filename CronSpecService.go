@@ -26,6 +26,12 @@ func (c CronSpecService) NextTime(isFirst bool, delay time.Duration, curTime tim
 	} else if strings.HasPrefix(express, "@day") {
 		return c.day(isFirst, curTime, strings.TrimSpace(express[4:]), missExec)
 
+	} else if strings.HasPrefix(express, "@week") {
+		return c.week(isFirst, curTime, strings.TrimSpace(express[5:]), missExec)
+
+	} else if strings.HasPrefix(express, "@month") {
+		return c.month(isFirst, curTime, strings.TrimSpace(express[6:]), missExec)
+
 	} else if strings.HasPrefix(express, "@year") {
 		return c.year(isFirst, curTime, strings.TrimSpace(express[5:]), missExec)
 
@@ -79,6 +85,33 @@ func (c CronSpecService) day(isFirst bool, curTime time.Time, timeStr string, mi
 	}
 
 	nextTime, err = getNewDayTime(curTime, 1, timeStr)
+	return
+}
+
+// timeStr格式：monday 09:00:00
+func (c CronSpecService) week(isFirst bool, curTime time.Time, timeStr string, missExec bool) (nextTime time.Time, err error) {
+	if isFirst {
+		// 获取本周的执行时间
+		nextTime, err = getNewWeekTime(curTime, 0, timeStr)
+		if err != nil {
+			return
+		}
+		if nextTime.Before(curTime) { // 本周执行时间已经过了
+			if missExec { // 错过执行，补偿执行
+				return
+			}
+			// 错过执行，那么获取下周的时间
+		} else { // 本周执行时间没有过
+			return
+		}
+	}
+
+	// 获取下周的执行时间
+	nextTime, err = getNewDayTime(curTime, 1, timeStr)
+	return
+}
+
+func (c CronSpecService) month(isFirst bool, curTime time.Time, timeStr string, missExec bool) (nextTime time.Time, err error) {
 	return
 }
 
