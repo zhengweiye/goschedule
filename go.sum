@@ -1,14 +1,2 @@
-github.com/zhengweiye/gopool v1.0.2 h1:VufP7T//MeDOtGY6UwjVcqnp9gz1HTx2LzludseOK3k=
-github.com/zhengweiye/gopool v1.0.2/go.mod h1:3Oq+U0Rj9NkoxAEtvuUC5QCwOqLvwg2O4DvQNEkoOvA=
-github.com/zhengweiye/gopool v1.0.3 h1:tS9U+HFBFI1rte3n0F4JzsaUJVtEaPq1j9WMEH5iji4=
-github.com/zhengweiye/gopool v1.0.3/go.mod h1:3Oq+U0Rj9NkoxAEtvuUC5QCwOqLvwg2O4DvQNEkoOvA=
-github.com/zhengweiye/gopool v1.0.4 h1:qxU/jFLhPRNg9DtAtBCuwJlxZ4Ry8BB9z2S1j7id1tQ=
-github.com/zhengweiye/gopool v1.0.4/go.mod h1:3Oq+U0Rj9NkoxAEtvuUC5QCwOqLvwg2O4DvQNEkoOvA=
-github.com/zhengweiye/gopool v1.0.5 h1:iEBzh/C9DK12R6w+hbpCHZQK3wBqiN8zcR2z9838sPk=
-github.com/zhengweiye/gopool v1.0.5/go.mod h1:3Oq+U0Rj9NkoxAEtvuUC5QCwOqLvwg2O4DvQNEkoOvA=
-github.com/zhengweiye/gopool v1.0.7 h1:lygYsX8V58yeC5FJBpwjNl499/2cIOXIci8g9EEeGo4=
-github.com/zhengweiye/gopool v1.0.7/go.mod h1:3Oq+U0Rj9NkoxAEtvuUC5QCwOqLvwg2O4DvQNEkoOvA=
-github.com/zhengweiye/gopool v1.0.8 h1:viT1ptsKzrGYnnL8t8EAqGpwUK3cBaaqoz0OmZqP4JU=
-github.com/zhengweiye/gopool v1.0.8/go.mod h1:3Oq+U0Rj9NkoxAEtvuUC5QCwOqLvwg2O4DvQNEkoOvA=
-github.com/zhengweiye/gopool v1.0.9 h1:cldcrymJeCDJgwtFqF1RDtII2+C/YbtyMXVcl8bseo8=
-github.com/zhengweiye/gopool v1.0.9/go.mod h1:3Oq+U0Rj9NkoxAEtvuUC5QCwOqLvwg2O4DvQNEkoOvA=
+github.com/zhengweiye/gopool v1.1.1 h1:sHT5DheZreSSqljn0ihoVqhfgZl9tJ0bF1wne1u8Z4w=
+github.com/zhengweiye/gopool v1.1.1/go.mod h1:3Oq+U0Rj9NkoxAEtvuUC5QCwOqLvwg2O4DvQNEkoOvA=
